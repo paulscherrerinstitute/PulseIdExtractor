@@ -1,4 +1,4 @@
-set ledstrip_support_fw_files { \
+set led_strip_i2c_fw_files { \
   "ioxos_mpc_master_i2c_ctl_pkg.vhd" \
   "MpcI2cSequencerPkg.vhd" \
   "InpDebouncer.vhd" \
@@ -8,13 +8,13 @@ set ledstrip_support_fw_files { \
   "PulseidExtractor.vhd" \
 }
 
-set ledstrip_support_location "[file dirname [info script]]"
+set led_strip_i2c_location "[file dirname [info script]]"
 
-proc ledstrip_support_add_srcs { pre } {
-  global ledstrip_support_fw_files
-  global ledstrip_support_location
-  set ledstripSupPath "[file dirname [info script]]"
-  foreach f $ledstrip_support_fw_files {
-    xfile add "$pre$ledstrip_support_location/$f"
+proc led_strip_i2c_add_srcs { pre } {
+  global led_strip_i2c_fw_files
+  global led_strip_i2c_location
+  set led_strip_i2ch "[file dirname [info script]]"
+  foreach f $led_strip_i2c_fw_files {
+    xfile add "$pre$led_strip_i2c_location/$f"
   }
 }

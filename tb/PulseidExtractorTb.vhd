@@ -14,6 +14,7 @@ architecture rtl of PulseidExtractorTb is
 
   signal   clk  : std_logic                    := '0';
   signal   rst  : std_logic                    := '1';
+  signal   trg  : std_logic                    := '0';
 
   signal valid       : std_logic               := '0';
 
@@ -73,9 +74,13 @@ begin
       valid <= '0';
 
       if ( rst = '0' ) then
+        trg <= '0';
         if ((cnt mod 2 ) = 1) then
           addr  <= addr + 1;
           valid <= '1';
+        end if;
+        if ( addr = OFF + LEN + 4 ) then
+          trg <= '1';
         end if;
       end if;
 
@@ -98,17 +103,22 @@ begin
   G_DUT : for endianBig in ok'range generate
     signal pid  : PidType;
     signal strb : std_logic;
+    signal trig : std_logic;
   begin
+
+  trig <= trg when endianBig else '1';
 
   U_DUT : entity work.PulseidExtractor
     generic map (
       PULSEID_OFFSET_G => OFF,
       PULSEID_LENGTH_G => LEN,
-      PULSEID_BIGEND_G => endianBig
+      PULSEID_BIGEND_G => endianBig,
+      USE_ASYNC_OUTP_G => false
     )
     port map (
       clk              => clk,
       rst              => rst,
+      trg              => trig,
 
       streamAddr       => std_logic_vector(addr),
       streamValid      => valid,

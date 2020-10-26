@@ -8,7 +8,8 @@ entity PulseidExtractor is
   generic (
     PULSEID_OFFSET_G  : natural := 0;    -- byte-offset in data memory
     PULSEID_BIGEND_G  : boolean := true; -- endian-ness
-    PULSEID_LENGTH_G  : natural := 8     -- in bytes
+    PULSEID_LENGTH_G  : natural := 8;    -- in bytes
+    USE_ASYNC_OUTP_G  : boolean := true
   );
   port (
     clk               : in  std_logic;
@@ -16,6 +17,8 @@ entity PulseidExtractor is
     streamData        : in  std_logic_vector( 7 downto 0);
     streamAddr        : in  std_logic_vector(10 downto 0);
     streamValid       : in  std_logic;
+    oclk              : in  std_logic := '0';
+    orst              : in  std_logic := '0';
     pulseid           : out std_logic_vector(8*PULSEID_LENGTH_G - 1 downto 0);
     pulseidStrobe     : out std_logic -- asserted for 1 cycle when a new ID is registered on 'pulseid'
   );
@@ -37,9 +40,41 @@ architecture rtl of PulseidExtractor is
     strobe  => '0'
   );
 
+  constant   STAGES_C  : natural := 2;
+
+  attribute  KEEP      : string;
+  attribute  ASYNC_REG : string;
+
+  signal pulseid_o     : std_logic_vector(8*PULSEID_LENGTH_G - 1 downto 0);
+  signal strobe_o      : std_logic_vector(STAGES_C           - 1 downto 0) := (others => '0');
+
+  attribute ASYNC_REG of strobe_o  : signal is "TRUE";
+  attribute KEEP      of strobe_o  : signal is "TRUE";
+  attribute KEEP      of pulseid_o : signal is "TRUE";
+
   signal r   : RegType := REG_INIT_C;
   signal rin : RegType;
+
 begin
+
+  G_Async : if ( USE_ASYNC_OUTP_G ) generate
+    P_SYNC : process ( oclk ) is
+    begin
+      if ( rising_edge( oclk ) ) then
+        if ( orst = '1' ) then
+          strobe_o <= (others => '0');
+        else
+          strobe_o <= strobe_o( strobe_o'left - 1 downto strobe_o'right) & r.strobe;
+        end if;
+      end if;
+    end process P_SYNC;
+
+    pulseIdStrobe <= strobe_o( strobe_o'left );
+  end generate G_Async;
+
+  G_Sync : if ( not USE_ASYNC_OUTP_G ) generate
+    pulseIdStrobe <= r.strobe;
+  end generate G_Sync;
 
   P_COMB : process( r, streamData, streamAddr, streamValid ) is
     variable v        : RegType;
@@ -87,6 +122,7 @@ begin
     end if;
   end process P_SEQ;
 
-  pulseid       <= r.pulseid;
-  pulseidStrobe <= r.strobe;
+  pulseid_o <= r.pulseid;
+  pulseid   <= pulseid_o;
+
 end architecture rtl;

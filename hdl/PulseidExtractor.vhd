@@ -113,10 +113,10 @@ begin
         end if; -- offset <= END_OFF
       end if; -- offset >= 0
     end if; -- streamValid = '1'
-    if ( (trg and v.updated) = '1' ) then
+    if ( (trg and r.updated) = '1' ) then
       v.updated  := '0';
       v.strobe   := '1';
-      v.pulseid  := v.pulseidReg;
+      v.pulseid  := r.pulseidReg;
     end if;
     rin <= v;
   end process P_COMB;

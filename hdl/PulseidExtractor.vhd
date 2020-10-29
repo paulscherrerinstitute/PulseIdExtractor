@@ -24,6 +24,7 @@ entity PulseidExtractor is
     pulseid           : out std_logic_vector(8*PULSEID_LENGTH_G - 1 downto 0);
     pulseidStrobe     : out std_logic; -- asserted for 1 cycle when a new ID is registered on 'pulseid'
     wdgErrors         : out std_logic_vector(31 downto 0);
+    seqErrors         : out std_logic_vector(31 downto 0);
     synErrors         : out std_logic_vector(31 downto 0);
     pulseidCnt        : out std_logic_vector(31 downto 0)
   );
@@ -61,14 +62,20 @@ architecture rtl of PulseidExtractor is
     synErrors    : unsigned(31 downto 0);
     wdgStrobe    : natural range 0 to PULSEID_WDOG_P_G;
     wdgErrors    : unsigned(31 downto 0);
+    seqErrors    : unsigned(31 downto 0);
     pulseidCnt   : unsigned(31 downto 0);
+    nextPid      : unsigned(pulseid'range);
+    havePid      : boolean;
   end record RegOClkType;
 
   constant REG_OCLK_INIT_C : RegOClkType := (
     synErrors    => (others => '0'),
     wdgStrobe    => PULSEID_WDOG_P_G,
     wdgErrors    => (others => '0'),
-    pulseidCnt   => (others => '0')
+    seqErrors    => (others => '0'),
+    pulseidCnt   => (others => '0'),
+    nextPid      => (others => '0'),
+    havePid      => false
   );
 
   function STAGES_F return natural is
@@ -201,7 +208,7 @@ begin
     rinClk <= v;
   end process P_CLK_COMB;
 
-  P_OCLK_COMB : process( rOClk, synErr, wdgStb, strobe ) is
+  P_OCLK_COMB : process( rOClk, synErr, wdgStb, strobe, rClk.pulseid ) is
     variable v : RegOClkType;
   begin
 
@@ -225,6 +232,11 @@ begin
 
     if ( strobe = '1' ) then
       v.pulseidCnt := rOClk.pulseidCnt + 1;
+      v.nextPid    := unsigned(rClk.pulseid) + 1;
+      v.havePid    := true; -- avoid error during the first iteration after reset
+      if ( rOClk.havePid and (unsigned(rClk.pulseid) /= rOClk.nextPid) ) then
+        v.seqErrors := rOClk.seqErrors + 1;
+      end if;
     end if;
 
     rinOClk <= v;
@@ -255,6 +267,7 @@ begin
   pulseid       <= rClk.pulseid;
   synErrors     <= std_logic_vector(rOClk.synErrors );
   wdgErrors     <= std_logic_vector(rOClk.wdgErrors );
+  seqErrors     <= std_logic_vector(rOClk.seqErrors );
   pulseidCnt    <= std_logic_vector(rOClk.pulseidCnt);
   pulseidStrobe <= strobe;
 

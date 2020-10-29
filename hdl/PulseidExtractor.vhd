@@ -40,8 +40,7 @@ architecture rtl of PulseidExtractor is
     strobe       : std_logic;
     got          : std_logic_vector(PULSEID_LENGTH_G - 1 downto 0);
     synErr       : std_logic;
-    wdgErr       : std_logic;
-    wdgStrobe    : natural range 0 to PULSEID_WDOG_P_G;
+    wdgStrobe    : std_logic;
     lastAddr     : std_logic_vector(evrStream.addr'range);
   end record RegClkType;
 
@@ -52,19 +51,20 @@ architecture rtl of PulseidExtractor is
     pulseid      => (others => '0'),
     strobe       => '0',
     synErr       => '0',
-    wdgErr       => '0',
+    wdgStrobe    => '0',
     got          => (others => '0'),
-    wdgStrobe    => PULSEID_WDOG_P_G,
     lastAddr     => (others => '1') -- pulse-id cannot overlap this address
   );
 
   type RegOClkType is record
     synErrors    : unsigned(31 downto 0);
+    wdgStrobe    : natural range 0 to PULSEID_WDOG_P_G;
     wdgErrors    : unsigned(31 downto 0);
   end record RegOClkType;
 
   constant REG_OCLK_INIT_C : RegOClkType := (
     synErrors    => (others => '0'),
+    wdgStrobe    => PULSEID_WDOG_P_G,
     wdgErrors    => (others => '0')
   );
 
@@ -82,14 +82,14 @@ architecture rtl of PulseidExtractor is
 
   signal syncStrobe    : std_logic_vector(STAGES_C           - 1 downto 0) := (others => '0');
   signal syncSynErr    : std_logic_vector(STAGES_C               downto 0) := (others => '0');
-  signal syncWdgErr    : std_logic_vector(STAGES_C               downto 0) := (others => '0');
+  signal syncWdgStb    : std_logic_vector(STAGES_C               downto 0) := (others => '0');
 
   attribute ASYNC_REG of syncStrobe: signal is "TRUE";
   attribute KEEP      of syncStrobe: signal is "TRUE";
   attribute ASYNC_REG of syncSynErr: signal is "TRUE";
   attribute KEEP      of syncSynErr: signal is "TRUE";
-  attribute ASYNC_REG of syncWdgErr: signal is "TRUE";
-  attribute KEEP      of syncWdgErr: signal is "TRUE";
+  attribute ASYNC_REG of syncWdgStb: signal is "TRUE";
+  attribute KEEP      of syncWdgStb: signal is "TRUE";
   attribute KEEP      of pulseid_o : signal is "TRUE";
 
   signal rClk          : RegClkType  := REG_CLK_INIT_C;
@@ -98,7 +98,7 @@ architecture rtl of PulseidExtractor is
   signal rinOClk       : RegOClkType;
 
   signal synErr        : std_logic;
-  signal wdgErr        : std_logic;
+  signal wdgStb        : std_logic;
 
   function SYNC_OK_F return std_logic_vector is
     variable v : std_logic_vector(PULSEID_LENGTH_G - 1 downto 0);
@@ -115,10 +115,10 @@ begin
     if ( rising_edge( oclk ) ) then
       if ( orst = '1' ) then
         syncSynErr <= (others => '0');
-        syncWdgErr <= (others => '0');
+        syncWdgStb <= (others => '0');
       else
         syncSynErr <= syncSynErr( syncSynErr'left - 1 downto syncSynErr'right) & rClk.synErr;
-        syncWdgErr <= syncWdgErr( syncWdgErr'left - 1 downto syncWdgErr'right) & rClk.wdgErr;
+        syncWdgStb <= syncWdgStb( syncWdgStb'left - 1 downto syncWdgStb'right) & rClk.wdgStrobe;
       end if;
     end if;
   end process P_SYNC_ERRS;
@@ -136,13 +136,13 @@ begin
     end process P_SYNC;
 
     synErr        <= (syncSynErr(syncSynErr'left) xor syncSynErr(syncSynErr'left - 1));
-    wdgErr        <= (syncWdgErr(syncWdgErr'left) xor syncWdgErr(syncWdgErr'left - 1));
+    wdgStb        <= (syncWdgStb(syncWdgStb'left) xor syncWdgStb(syncWdgStb'left - 1));
     pulseIdStrobe <= syncStrobe( syncStrobe'left );
   end generate G_Async;
 
   G_Sync : if ( not USE_ASYNC_OUTP_G ) generate
-    synErr        <= (syncSynErr(syncSynErr'left) xor rClk.synErr);
-    wdgErr        <= (syncWdgErr(syncWdgErr'left) xor rClk.wdgErr);
+    synErr        <= (syncSynErr(syncSynErr'left) xor rClk.synErr   );
+    wdgStb        <= (syncWdgStb(syncWdgStb'left) xor rClk.wdgStrobe);
     pulseIdStrobe <= rClk.strobe;
   end generate G_Sync;
 
@@ -156,16 +156,6 @@ begin
     v := rClk;
 
     v.strobe      := '0';
-
-    -- watchdog
-    if ( PULSEID_WDOG_P_G > 0 ) then
-      if ( rClk.wdgStrobe = 0 ) then
-        v.wdgStrobe := PULSEID_WDOG_P_G;
-        v.wdgErr    :=  not rClk.wdgErr;
-      else
-        v.wdgStrobe := rClk.wdgStrobe - 1;
-      end if;
-    end if;
 
 	if ( evrStream.valid = '1' ) then
       v.lastAddr := evrStream.addr;
@@ -203,7 +193,7 @@ begin
 
               v.updated   := '1';
               -- strobe the watchdog; a new pulse-ID was recorded
-              v.wdgStrobe := PULSEID_WDOG_P_G;
+              v.wdgStrobe := not rClk.wdgStrobe;
             end if;
 
           end if; -- offset <= END_OFF
@@ -220,18 +210,26 @@ begin
     rinClk <= v;
   end process P_CLK_COMB;
 
-  P_OCLK_COMB : process( rOClk, synErr, wdgErr ) is
+  P_OCLK_COMB : process( rOClk, synErr, wdgStb ) is
     variable v : RegOClkType;
   begin
 
     v := rOClk;
 
-    if ( synErr = '1' ) then
-      v.synErrors := rOClk.synErrors + 1;
+    -- watchdog
+    if ( PULSEID_WDOG_P_G > 0 ) then
+      if    ( wdgStb = '1' ) then
+        v.wdgStrobe := PULSEID_WDOG_P_G;
+      elsif ( rOClk.wdgStrobe = 0 ) then 
+        v.wdgStrobe := PULSEID_WDOG_P_G;
+        v.wdgErrors := rOClk.wdgErrors + 1;
+      else
+        v.wdgStrobe := rOClk.wdgStrobe - 1;
+      end if;
     end if;
 
-    if ( wdgErr = '1' ) then
-      v.wdgErrors := rOClk.wdgErrors + 1;
+    if ( synErr = '1' ) then
+      v.synErrors := rOClk.synErrors + 1;
     end if;
 
     rinOClk <= v;

@@ -3,6 +3,8 @@ library ieee;
 use ieee.std_logic_1164.all;
 use ieee.numeric_std.all;
 
+use work.LedStripTcsrWrapperPkg.all;
+
 entity PulseidExtractorTb is
 end entity PulseidExtractorTb;
 
@@ -10,13 +12,16 @@ architecture rtl of PulseidExtractorTb is
   constant OFF  : natural := 4;
   constant LEN  : natural := 8;
   signal   addr : unsigned(10 downto 0)        := (others => '0');
-  signal   data : std_logic_vector(7 downto 0) := (others => 'X');
+
+  signal   stm  : EvrStreamType := (
+    addr  => (others => '0'),
+    data  => (others => 'X'),
+    valid => '0'
+  );
 
   signal   clk  : std_logic                    := '0';
   signal   rst  : std_logic                    := '1';
   signal   trg  : std_logic                    := '0';
-
-  signal valid       : std_logic               := '0';
 
   signal run         : boolean                 := true;
 
@@ -53,12 +58,12 @@ begin
     end if;
   end process P_CLK;
 
-  P_MUX : process (addr, valid) is
+  P_MUX : process (addr, stm) is
   begin
-    if ( valid = '1' and (addr >= OFF) and (addr < OFF + LEN) ) then
-      data <= PID_C( to_integer( addr - OFF ) );
+    if ( stm.valid = '1' and (addr >= OFF) and (addr < OFF + LEN) ) then
+      stm.data <= PID_C( to_integer( addr - OFF ) );
     else
-      data <= (others => 'X');
+      stm.data <= (others => 'X');
     end if;
   end process P_MUX;
 
@@ -71,13 +76,13 @@ begin
         rst <= '0';
       end if;
 
-      valid <= '0';
+      stm.valid <= '0';
 
       if ( rst = '0' ) then
         trg <= '0';
         if ((cnt mod 2 ) = 1) then
           addr  <= addr + 1;
-          valid <= '1';
+          stm.valid <= '1';
         end if;
         if ( addr = OFF + LEN + 4 ) then
           trg <= '1';
@@ -108,6 +113,8 @@ begin
 
   trig <= trg when endianBig else '1';
 
+  stm.addr <= std_logic_vector(addr);
+
   U_DUT : entity work.PulseidExtractor
     generic map (
       PULSEID_OFFSET_G => OFF,
@@ -120,9 +127,7 @@ begin
       rst              => rst,
       trg              => trig,
 
-      streamAddr       => std_logic_vector(addr),
-      streamValid      => valid,
-      streamData       => data,
+      evrStream        => stm,
 
       pulseid          => pid,
       pulseidStrobe    => strb

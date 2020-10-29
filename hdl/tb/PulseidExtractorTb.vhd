@@ -185,6 +185,9 @@ begin
       synErrors        => synErrors(endianBig),
       wdgErrors        => wdgErrors(endianBig),
 
+      oclk             => clk,
+      orst             => rst,
+
       pulseid          => pid,
       pulseidStrobe    => strb
     );

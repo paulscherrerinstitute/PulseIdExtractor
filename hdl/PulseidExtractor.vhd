@@ -23,7 +23,8 @@ entity PulseidExtractor is
     orst              : in  std_logic := '0';
     pulseid           : out std_logic_vector(8*PULSEID_LENGTH_G - 1 downto 0);
     pulseidStrobe     : out std_logic; -- asserted for 1 cycle when a new ID is registered on 'pulseid'
-    wdgErrors         : out std_logic_vector(31 downto 0)
+    wdgErrors         : out std_logic_vector(31 downto 0);
+    synErrors         : out std_logic_vector(31 downto 0)
   );
 end entity PulseidExtractor;
 
@@ -36,10 +37,12 @@ architecture rtl of PulseidExtractor is
     updated      : std_logic;
     pulseidReg   : std_logic_vector(8*PULSEID_LENGTH_G     - 1 downto 0);
     pulseid      : std_logic_vector(8*PULSEID_LENGTH_G     - 1 downto 0);
-    streamValid  : std_logic;
     strobe       : std_logic;
+    got          : std_logic_vector(PULSEID_LENGTH_G - 1 downto 0);
+    synErrors    : unsigned(31 downto 0);
     wdgErrors    : unsigned(31 downto 0);
     wdgStrobe    : natural range 0 to PULSEID_WDOG_P_G;
+    lastAddr     : std_logic_vector(evrStream.addr'range);
   end record RegType;
 
   constant REG_INIT_C : RegType := (
@@ -48,9 +51,11 @@ architecture rtl of PulseidExtractor is
     pulseidReg   => (others => '0'),
     pulseid      => (others => '0'),
     strobe       => '0',
-    streamValid  => '0',
+    got          => (others => '0'),
+    synErrors    => (others => '0'),
     wdgErrors    => (others => '0'),
-    wdgStrobe    => PULSEID_WDOG_P_G
+    wdgStrobe    => PULSEID_WDOG_P_G,
+    lastAddr     => (others => '1') -- pulse-id cannot overlap this address
   );
 
   constant   STAGES_C  : natural := 2;
@@ -67,6 +72,14 @@ architecture rtl of PulseidExtractor is
 
   signal r   : RegType := REG_INIT_C;
   signal rin : RegType;
+
+  function SYNC_OK_F return std_logic_vector is
+    variable v : std_logic_vector(PULSEID_LENGTH_G - 1 downto 0);
+  begin
+    v         := (others => '1');
+    v(v'left) := '0';
+    return v;
+  end function SYNC_OK_F;
 
 begin
 
@@ -99,37 +112,67 @@ begin
     v := r;
 
     v.strobe      := '0';
-    v.streamValid := evrStream.valid;
+
+    -- watchdog
+    if ( PULSEID_WDOG_P_G > 0 ) then
+      if ( r.wdgStrobe = 0 ) then
+        v.wdgStrobe := PULSEID_WDOG_P_G;
+        v.wdgErrors := r.wdgErrors + 1;
+      else
+        v.wdgStrobe := r.wdgStrobe - 1;
+      end if;
+    end if;
 
 	if ( evrStream.valid = '1' ) then
-      offset := signed(resize(unsigned(evrStream.addr),offset'length)) - PULSEID_OFFSET_G;
-      if ( offset >= 0 ) then
-        if ( offset < END_OFF ) then
-          if ( PULSEID_BIGEND_G ) then
-            v.demux(v.demux'right - to_integer(offset)) := evrStream.data;
-          else
-            v.demux(to_integer(offset))                 := evrStream.data;
-          end if;
-        elsif ( offset = END_OFF ) then
-          for i in v.demux'range loop
-            demuxVec( 8*i + 7 downto 8* i) := r.demux(i);
-          end loop;
+      v.lastAddr := evrStream.addr;
+      if ( evrStream.addr /= r.lastAddr ) then
+        offset := signed(resize(unsigned(evrStream.addr),offset'length)) - PULSEID_OFFSET_G;
+        if ( offset >= 0 ) then
+          if ( offset < END_OFF ) then
+            if ( v.got( to_integer(offset) ) = '1' ) then
+              v.got := (others => '0');
+            else
+              v.got( to_integer(offset) ) := '1';
+            end if;
 
-          if ( PULSEID_BIGEND_G ) then
-            v.pulseidReg := demuxVec & evrStream.data;
-          else
-            v.pulseidReg := evrStream.data & demuxVec;
-          end if;
+            if ( PULSEID_BIGEND_G ) then
+              v.demux(v.demux'right - to_integer(offset)) := evrStream.data;
+            else
+              v.demux(to_integer(offset))                 := evrStream.data;
+            end if;
+          elsif ( offset = END_OFF ) then
 
-          v.updated := '1';
-        end if; -- offset <= END_OFF
-      end if; -- offset >= 0
+            v.got := (others => '0');
+
+            if ( r.got /= SYNC_OK_F ) then
+              v.synErrors := r.synErrors + 1;
+            else
+              for i in v.demux'range loop
+                demuxVec( 8*i + 7 downto 8* i) := r.demux(i);
+              end loop;
+
+              if ( PULSEID_BIGEND_G ) then
+                v.pulseidReg := demuxVec & evrStream.data;
+              else
+                v.pulseidReg := evrStream.data & demuxVec;
+              end if;
+
+              v.updated   := '1';
+              -- strobe the watchdog; a new pulse-ID was recorded
+              v.wdgStrobe := PULSEID_WDOG_P_G;
+            end if;
+
+          end if; -- offset <= END_OFF
+        end if; -- offset >= 0
+      end if; -- evrStream.addr /= r.lastAddr
     end if; -- evrStream.valid = '1'
+
     if ( (trg and r.updated) = '1' ) then
       v.updated  := '0';
       v.strobe   := '1';
       v.pulseid  := r.pulseidReg;
     end if;
+
     rin <= v;
   end process P_COMB;
 
@@ -146,5 +189,7 @@ begin
 
   pulseid_o <= r.pulseid;
   pulseid   <= pulseid_o;
+  synErrors <= std_logic_vector(r.synErrors);
+  wdgErrors <= std_logic_vector(r.wdgErrors);
 
 end architecture rtl;

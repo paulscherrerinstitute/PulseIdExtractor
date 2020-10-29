@@ -26,8 +26,11 @@ architecture rtl of PulseidExtractorTb is
   signal run         : boolean                 := true;
 
   type OkType   is array (boolean) of boolean;
+  type Slv32BA  is array (boolean) of std_logic_vector(31 downto 0);
 
   signal ok          : OkType := (others => false);
+  signal synErrors   : Slv32BA;
+  signal wdgErrors   : Slv32BA;
 
   signal cnt         : natural                 := 0;
 
@@ -67,7 +70,7 @@ begin
     end if;
   end process P_MUX;
 
-  P_DRV : process ( clk ) is
+  P_CNT : process ( clk ) is
     variable passed : boolean;
   begin
     if ( rising_edge( clk ) ) then
@@ -75,34 +78,83 @@ begin
       if ( cnt = 5 ) then
         rst <= '0';
       end if;
-
-      stm.valid <= '0';
-
-      if ( rst = '0' ) then
-        trg <= '0';
-        if ((cnt mod 2 ) = 1) then
-          addr  <= addr + 1;
-          stm.valid <= '1';
-        end if;
-        if ( addr = OFF + LEN + 4 ) then
-          trg <= '1';
-        end if;
-      end if;
-
-      if ( cnt = 64 ) then
-        passed := true;
-        for endian in ok'range loop
-          passed := passed and ok(endian);
-          report "Test for BE=" & boolean'image(endian) & " passed => " & boolean'image(ok(endian));
-        end loop;
-        if ( passed ) then
-          report "Test PASSED";
-        else
-          report "Test FAILED" severity failure;
-        end if;
-        run <= false;
-      end if;
     end if;
+  end process P_CNT;
+
+  P_DRV : process is
+
+    variable passed : boolean;
+
+    procedure tick is
+    begin
+      wait until ( rising_edge( clk ) );
+    end procedure tick;
+
+  begin
+    while ( rst = '1' ) loop
+      tick;
+    end loop;
+    
+    while ( addr < OFF + LEN + 4 ) loop
+      if ((cnt mod 2 ) = 1) then
+        addr      <= addr + 1;
+        stm.valid <= '1';
+      end if;
+      tick;
+    end loop;
+
+    trg <= '1';
+    tick;
+    stm.valid <= '0';
+
+    while ( cnt < 64 ) loop
+      tick;
+    end loop;
+
+    passed := true;
+    for endian in ok'range loop
+      passed := passed and ok(endian);
+      report "Test for BE=" & boolean'image(endian) & " passed => " & boolean'image(ok(endian));
+    end loop;
+
+    addr      <= to_unsigned(OFF + 1, addr'length);
+    stm.valid <= '1';
+    tick;
+    while ( addr < OFF + LEN + 4 ) loop
+      if ((cnt mod 2 ) = 1) then
+        addr      <= addr + 1;
+      end if;
+      tick;
+    end loop;
+    stm.valid <= '0';
+    tick;
+
+    for endian in ok'range loop
+      passed := passed and ( unsigned(synErrors(endian)) = 1 );
+      report "SynError reading for BE=" & boolean'image(endian) & " : " & integer'image(to_integer(unsigned(synErrors(endian))));
+      passed := passed and ( unsigned(wdgErrors(endian)) = 0 );
+      report "WdgError reading for BE=" & boolean'image(endian) & " : " & integer'image(to_integer(unsigned(wdgErrors(endian))));
+    end loop;
+
+    while ( cnt < 200 ) loop
+      tick;
+    end loop;
+
+    for endian in ok'range loop
+
+      passed := passed and ( unsigned(wdgErrors(endian)) > 0 );
+      report "WdgError reading for BE=" & boolean'image(endian) & " : " & integer'image(to_integer(unsigned(wdgErrors(endian))));
+    end loop;
+
+
+    if ( passed ) then
+      report "Test PASSED";
+    else
+      report "Test FAILED" severity failure;
+    end if;
+    tick;
+    run <= false;
+    tick;
   end process P_DRV;
 
   G_DUT : for endianBig in ok'range generate
@@ -120,7 +172,8 @@ begin
       PULSEID_OFFSET_G => OFF,
       PULSEID_LENGTH_G => LEN,
       PULSEID_BIGEND_G => endianBig,
-      USE_ASYNC_OUTP_G => false
+      USE_ASYNC_OUTP_G => false,
+      PULSEID_WDOG_P_G => 100
     )
     port map (
       clk              => clk,
@@ -128,6 +181,9 @@ begin
       trg              => trig,
 
       evrStream        => stm,
+
+      synErrors        => synErrors(endianBig),
+      wdgErrors        => wdgErrors(endianBig),
 
       pulseid          => pid,
       pulseidStrobe    => strb

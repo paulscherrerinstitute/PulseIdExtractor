@@ -8,6 +8,9 @@ set led_strip_i2c_fw_files { \
   "LedStripController.vhd" \
   "PulseidExtractor.vhd" \
   "LedStripTcsrWrapper.vhd" \
+  "LedStripTmemWrapper.vhd" \
+  "PulseIdAtomic.vhd" \
+  "PulseIdAtomicTmem.vhd" \
 }
 
 set led_strip_i2c_location "[file dirname [info script]]"

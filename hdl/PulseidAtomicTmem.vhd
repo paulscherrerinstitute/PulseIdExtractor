@@ -92,8 +92,8 @@ entity PulseidAtomicTmem is
     xuser_TMEM_IF_DATW : in  std_logic_vector(63 downto 0);
     xuser_TMEM_IF_WE   : in  std_logic_vector( 7 downto 0);
     xuser_TMEM_IF_DATR : out std_logic_vector(63 downto 0);
-    xuser_TMEM_BUSY    : out std_logic;
-    xuser_TMEM_PIPE    : out std_logic_vector( 1 downto 0)
+    xuser_TMEM_IF_BUSY : out std_logic;
+    xuser_TMEM_IF_PIPE : out std_logic_vector( 1 downto 0)
   );
 end entity PulseidAtomicTmem;
 
@@ -190,7 +190,7 @@ begin
   end process P_rwRegs;
 
   xuser_TMEM_IF_DATR <= loc_DATR;
-  xuser_TMEM_BUSY    <= '0';
-  xuser_TMEM_PIPE    <= "00";
+  xuser_TMEM_IF_BUSY <= '0';
+  xuser_TMEM_IF_PIPE <= "00";
 
 end architecture rtl;

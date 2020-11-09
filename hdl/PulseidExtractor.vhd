@@ -12,7 +12,7 @@ entity PulseidExtractor is
     PULSEID_BIGEND_G  : boolean := true; -- endian-ness
     PULSEID_LENGTH_G  : natural := 8;    -- in bytes
     USE_ASYNC_OUTP_G  : boolean := true;
-    PULSEID_WDOG_P_G  : natural := 0     -- watchdog for missing pulse IDs; cycle count in 'clk' cycles (disabled when 0).
+    PULSEID_WDOG_P_G  : natural := 0     -- watchdog for missing pulse IDs; cycle count in 'oclk' cycles (disabled when 0).
   );
   port (
     clk               : in  std_logic;
@@ -42,8 +42,10 @@ architecture rtl of PulseidExtractor is
     strobe       : std_logic;
     got          : std_logic_vector(PULSEID_LENGTH_G - 1 downto 0);
     synErr       : std_logic;
+    seqErr       : std_logic;
     wdgStrobe    : std_logic;
     lastAddr     : std_logic_vector(evrStream.addr'range);
+    havePid      : boolean;
   end record RegClkType;
 
   constant REG_CLK_INIT_C : RegClkType := (
@@ -53,9 +55,11 @@ architecture rtl of PulseidExtractor is
     pulseid      => (others => '0'),
     strobe       => '0',
     synErr       => '0',
+    seqErr       => '0',
     wdgStrobe    => '0',
     got          => (others => '0'),
-    lastAddr     => (others => '1') -- pulse-id cannot overlap this address
+    lastAddr     => (others => '1'), -- pulse-id cannot overlap this address
+    havePid      => false
   );
 
   type RegOClkType is record
@@ -64,8 +68,6 @@ architecture rtl of PulseidExtractor is
     wdgErrors    : unsigned(31 downto 0);
     seqErrors    : unsigned(31 downto 0);
     pulseidCnt   : unsigned(31 downto 0);
-    nextPid      : unsigned(pulseid'range);
-    havePid      : boolean;
   end record RegOClkType;
 
   constant REG_OCLK_INIT_C : RegOClkType := (
@@ -73,9 +75,7 @@ architecture rtl of PulseidExtractor is
     wdgStrobe    => PULSEID_WDOG_P_G,
     wdgErrors    => (others => '0'),
     seqErrors    => (others => '0'),
-    pulseidCnt   => (others => '0'),
-    nextPid      => (others => '0'),
-    havePid      => false
+    pulseidCnt   => (others => '0')
   );
 
   function STAGES_F return natural is
@@ -90,12 +90,18 @@ architecture rtl of PulseidExtractor is
 
   signal syncStrobe    : std_logic_vector(STAGES_C               downto 0) := (others => '0');
   signal syncSynErr    : std_logic_vector(STAGES_C               downto 0) := (others => '0');
+  signal syncSeqErr    : std_logic_vector(STAGES_C               downto 0) := (others => '0');
+  signal syncPidCnt    : std_logic_vector(STAGES_C               downto 0) := (others => '0');
   signal syncWdgStb    : std_logic_vector(STAGES_C               downto 0) := (others => '0');
 
   attribute ASYNC_REG of syncStrobe: signal is "TRUE";
   attribute KEEP      of syncStrobe: signal is "TRUE";
   attribute ASYNC_REG of syncSynErr: signal is "TRUE";
   attribute KEEP      of syncSynErr: signal is "TRUE";
+  attribute ASYNC_REG of syncSeqErr: signal is "TRUE";
+  attribute KEEP      of syncSeqErr: signal is "TRUE";
+  attribute ASYNC_REG of syncPidCnt: signal is "TRUE";
+  attribute KEEP      of syncPidCnt: signal is "TRUE";
   attribute ASYNC_REG of syncWdgStb: signal is "TRUE";
   attribute KEEP      of syncWdgStb: signal is "TRUE";
 
@@ -104,6 +110,7 @@ architecture rtl of PulseidExtractor is
   signal rOClk         : RegOClkType := REG_OCLK_INIT_C;
   signal rinOClk       : RegOClkType;
 
+  signal seqErr        : std_logic;
   signal synErr        : std_logic;
   signal wdgStb        : std_logic;
   signal strobe        : std_logic;
@@ -123,10 +130,13 @@ begin
     if ( rising_edge( oclk ) ) then
       if ( orst = '1' ) then
         syncSynErr <= (others => '0');
+        syncSeqErr <= (others => '0');
+        syncPidCnt <= (others => '0');
         syncWdgStb <= (others => '0');
         syncStrobe <= (others => '0');
       else
         syncSynErr <= syncSynErr( syncSynErr'left - 1 downto syncSynErr'right) & rClk.synErr;
+        syncSeqErr <= syncSeqErr( syncSeqErr'left - 1 downto syncSeqErr'right) & rClk.seqErr;
         syncWdgStb <= syncWdgStb( syncWdgStb'left - 1 downto syncWdgStb'right) & rClk.wdgStrobe;
         syncStrobe <= syncStrobe( syncStrobe'left - 1 downto syncStrobe'right) & rClk.strobe;
       end if;
@@ -134,14 +144,15 @@ begin
   end process P_SYNC_ERRS;
 
   G_Async : if ( USE_ASYNC_OUTP_G ) generate
-
     synErr <= (syncSynErr(syncSynErr'left) xor syncSynErr(syncSynErr'left - 1));
+    seqErr <= (syncSeqErr(syncSeqErr'left) xor syncSeqErr(syncSeqErr'left - 1));
     wdgStb <= (syncWdgStb(syncWdgStb'left) xor syncWdgStb(syncWdgStb'left - 1));
     strobe <= (syncStrobe(syncStrobe'left) xor syncStrobe(syncStrobe'left - 1));
   end generate G_Async;
 
   G_Sync : if ( not USE_ASYNC_OUTP_G ) generate
     synErr <= (syncSynErr(syncSynErr'left) xor rClk.synErr   );
+    seqErr <= (syncSeqErr(syncSeqErr'left) xor rClk.seqErr   );
     wdgStb <= (syncWdgStb(syncWdgStb'left) xor rClk.wdgStrobe);
     strobe <= (syncStrobe(syncStrobe'left) xor rClk.strobe   );
   end generate G_Sync;
@@ -189,6 +200,12 @@ begin
                 v.pulseidReg := evrStream.data & demuxVec;
               end if;
 
+              v.havePid := true; -- avoid seq error during the first iteration after reset
+
+              if ( rClk.havePid and ( unsigned(v.pulseidReg) /= unsigned(rClk.pulseidReg) + 1 ) ) then
+                v.seqErr  := not rClk.seqErr;
+              end if;
+
               v.updated   := '1';
               -- strobe the watchdog; a new pulse-ID was recorded
               v.wdgStrobe := not rClk.wdgStrobe;
@@ -208,11 +225,15 @@ begin
     rinClk <= v;
   end process P_CLK_COMB;
 
-  P_OCLK_COMB : process( rOClk, synErr, wdgStb, strobe, rClk.pulseid ) is
+  P_OCLK_COMB : process( rOClk, synErr, seqErr, wdgStb, strobe ) is
     variable v : RegOClkType;
   begin
 
     v := rOClk;
+
+    if ( wdgStb = '1' ) then
+      v.pulseidCnt := rOClk.pulseidCnt + 1;
+    end if;
 
     -- watchdog
     if ( PULSEID_WDOG_P_G > 0 ) then
@@ -230,13 +251,8 @@ begin
       v.synErrors := rOClk.synErrors + 1;
     end if;
 
-    if ( strobe = '1' ) then
-      v.pulseidCnt := rOClk.pulseidCnt + 1;
-      v.nextPid    := unsigned(rClk.pulseid) + 1;
-      v.havePid    := true; -- avoid error during the first iteration after reset
-      if ( rOClk.havePid and (unsigned(rClk.pulseid) /= rOClk.nextPid) ) then
-        v.seqErrors := rOClk.seqErrors + 1;
-      end if;
+    if ( seqErr = '1' ) then
+      v.seqErrors := rOClk.seqErrors + 1;
     end if;
 
     rinOClk <= v;

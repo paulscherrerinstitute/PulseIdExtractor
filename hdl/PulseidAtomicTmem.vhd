@@ -118,6 +118,7 @@ architecture rtl of PulseidAtomicTmem is
   signal synErrors     : std_logic_vector(31 downto 0);
   signal seqErrors     : std_logic_vector(31 downto 0);
   signal pulseidCnt    : std_logic_vector(31 downto 0);
+  signal status        : std_logic;
 
   signal loc_DATR      : std_logic_vector(63 downto 0)       := (others => '0');
 
@@ -160,7 +161,8 @@ begin
       wdgErrors        => wdgErrors,
       synErrors        => synErrors,
       seqErrors        => seqErrors,
-      pulseidCnt       => pulseidCnt
+      pulseidCnt       => pulseidCnt,
+      status           => status
     );
 
   P_rwRegs : process ( xuser_CLK ) is
@@ -177,7 +179,7 @@ begin
         elsif ( addr = 1 ) then
           loc_DATR <= timeSecs & timeNSecs;
         elsif ( addr = 2 ) then
-          loc_DATR <= x"0000_0000_0000_000" & "00" & rstCounters & freeze;
+          loc_DATR <= x"0000_0000_0000_000" & "0" & status & rstCounters & freeze;
         elsif ( addr = 3 ) then
           loc_DATR <= seqErrors & pulseidCnt;
         elsif ( addr = 4 ) then

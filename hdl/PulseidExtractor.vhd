@@ -27,7 +27,8 @@ entity PulseidExtractor is
     wdgErrors         : out std_logic_vector(31 downto 0);
     seqErrors         : out std_logic_vector(31 downto 0);
     synErrors         : out std_logic_vector(31 downto 0);
-    pulseidCnt        : out std_logic_vector(31 downto 0)
+    pulseidCnt        : out std_logic_vector(31 downto 0);
+    status            : out std_logic
   );
 end entity PulseidExtractor;
 
@@ -73,6 +74,7 @@ architecture rtl of PulseidExtractor is
     wdgErrors    : unsigned(31 downto 0);
     seqErrors    : unsigned(31 downto 0);
     pulseidCnt   : unsigned(31 downto 0);
+    status       : std_logic;
   end record RegOClkType;
 
   constant REG_OCLK_INIT_C : RegOClkType := (
@@ -80,7 +82,8 @@ architecture rtl of PulseidExtractor is
     wdgStrobe    => PULSEID_WDOG_P_G,
     wdgErrors    => (others => '0'),
     seqErrors    => (others => '0'),
-    pulseidCnt   => (others => '0')
+    pulseidCnt   => (others => '0'),
+    status       => '0'
   );
 
   function STAGES_F return natural is
@@ -254,6 +257,11 @@ begin
 
     v := rOClk;
 
+    if ( strobe = '1' ) then
+      -- valid update
+      v.status := '1';
+    end if;
+
     if ( wdgStb = '1' ) then
       v.pulseidCnt := rOClk.pulseidCnt + 1;
     end if;
@@ -265,6 +273,7 @@ begin
       elsif ( rOClk.wdgStrobe = 0 ) then 
         v.wdgStrobe := PULSEID_WDOG_P_G;
         v.wdgErrors := rOClk.wdgErrors + 1;
+        v.status    := '0';
       else
         v.wdgStrobe := rOClk.wdgStrobe - 1;
       end if;
@@ -309,5 +318,6 @@ begin
   seqErrors     <= std_logic_vector(rOClk.seqErrors );
   pulseidCnt    <= std_logic_vector(rOClk.pulseidCnt);
   pulseidStrobe <= strobe;
+  status        <= rOClk.status;
 
 end architecture rtl;

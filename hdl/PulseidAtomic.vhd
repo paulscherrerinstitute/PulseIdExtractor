@@ -38,7 +38,8 @@ entity PulseidAtomic is
     wdgErrors  : out std_logic_vector(31 downto 0);
     synErrors  : out std_logic_vector(31 downto 0);
     seqErrors  : out std_logic_vector(31 downto 0);
-    pulseidCnt : out std_logic_vector(31 downto 0)
+    pulseidCnt : out std_logic_vector(31 downto 0);
+    status     : out std_logic
   );
 end entity PulseidAtomic;
 
@@ -79,6 +80,9 @@ architecture rtl of PulseidAtomic is
   signal tsHiStrobe    : std_logic;
   signal tsLoStrobe    : std_logic;
   signal lastStrobe    : std_logic;
+  signal pidStatus     : std_logic;
+  signal tsHiStatus    : std_logic;
+  signal tsLoStatus    : std_logic;
 
   function max(a,b:natural) return natural is
   begin
@@ -124,7 +128,8 @@ begin
       wdgErrors        => wdgErrors,
       synErrors        => synErrors,
       seqErrors        => seqErrors,
-      pulseidCnt       => pulseidCnt
+      pulseidCnt       => pulseidCnt,
+      status           => pidStatus
     );
 
   U_X_TimeSecs : entity work.PulseIdExtractor
@@ -150,7 +155,8 @@ begin
       wdgErrors        => open,
       synErrors        => open,
       seqErrors        => open,
-      pulseidCnt       => open
+      pulseidCnt       => open,
+      status           => tsHiStatus
     );
 
   U_X_TimeNSecs : entity work.PulseIdExtractor
@@ -176,7 +182,8 @@ begin
       wdgErrors        => open,
       synErrors        => open,
       seqErrors        => open,
-      pulseidCnt       => open
+      pulseidCnt       => open,
+      status           => tsLoStatus
     );
 
 
@@ -221,5 +228,6 @@ begin
   timeSecs  <= r.timeOut.timeSecs;
   timeNSecs <= r.timeOut.timeNSecs;
   strobe    <= r.timeOut.strobe;
+  status    <= (pidStatus and tsHiStatus and tsLoStatus);
 
 end architecture rtl;

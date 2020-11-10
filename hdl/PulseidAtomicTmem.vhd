@@ -12,11 +12,24 @@ use work.Evr320StreamPkg.all;
 --    respectively, happen during the same clock cycle.
 --  - 'strobe' is asserted during the first cycle after
 --    an update of pulse-ID/time-stamp.
---  - while the 'freeze' bit is set in the control-register
---    updates are inhibited. This allows software to 
---    retrieve an atomic reading with multiple register
---    read operations.
---  - updates are re-enabled when 'freeze' is cleared.
+--  - while the 'freeze' count is negative (bit 7 set)
+--    in the control-register updates are inhibited.
+--    This allows software to retrieve an atomic reading
+--    with multiple register read operations.
+--    The value written to the 'freeze' field is subtracted
+--    from the 'freeze' count. This allows for a simple
+--    nested locking scheme in software:
+--          write(freeze,  1);
+--             // 1 subtracted from count
+--             readout()
+--          write(freeze, -1);
+--             // 1 added back to count
+--    if this algorithm is executed by multiple threads then
+--    the freeze count falls below zero with the first
+--    write(1) and reaches zero again when the last thread
+--    leaves the critical section.
+--  - updates are re-enabled when 'freeze[7]' is deasserted.
+--  - reading the 'freeze' field yields the current count.
 --  - registers are available for reading error counters
 --
 -- REGISTERS (64 bit)
@@ -27,8 +40,12 @@ use work.Evr320StreamPkg.all;
 --                     [63:32]: seconds,
 --                     [31:00]: nano-seconds
 --        0x10       control-register       
---                     [0]: freeze readout
---                     [1]: reset counters (while asserted)
+--                     [7:0]: freeze count
+--                     [32] : reset counters (while asserted)
+--                   The readout is frozen while
+--                   bit 7 is asserted. The value
+--                   written to this field is *subtracted*
+--                   from the current 'freeze' value.
 --        0x18       counter-register 0
 --                     [63:32]: sequence Errors
 --                     [31:00]: pulse-id Counter
@@ -103,7 +120,7 @@ end entity PulseidAtomicTmem;
 architecture rtl of PulseidAtomicTmem is
 
   -- pulseid, timeSecs, timeNsecs update synchronously while freeze is '0'
-  signal freeze        : std_logic := '0';
+  signal freeze        : unsigned(7 downto 0) := (others => '0');
   signal rstCounters   : std_logic := '0';
   signal loc_xuser_RST : std_logic;
 
@@ -151,7 +168,7 @@ begin
       oclk             => xuser_CLK,
       orst             => loc_xuser_RST,
 
-      freeze           => freeze,
+      freeze           => freeze(freeze'left),
       pulseid          => pulseid,
       timeSecs         => timeSecs,
       timeNSecs        => timeNSecs,
@@ -169,7 +186,7 @@ begin
   begin
     if ( rising_edge( xuser_CLK ) ) then
       if ( xuser_RST = '1' ) then
-        freeze      <= '0';
+        freeze      <= (others => '0');
         rstCounters <= '0';
         loc_DATR    <= (others => '0');
       else
@@ -179,7 +196,8 @@ begin
         elsif ( addr = 1 ) then
           loc_DATR <= timeSecs & timeNSecs;
         elsif ( addr = 2 ) then
-          loc_DATR <= x"0000_0000_0000_000" & "0" & status & rstCounters & freeze;
+          loc_DATR <=    x"0000_000" & "00" & status & rstCounters
+                      &  x"0000_00"  & std_logic_vector(freeze);
         elsif ( addr = 3 ) then
           loc_DATR <= seqErrors & pulseidCnt;
         elsif ( addr = 4 ) then
@@ -188,11 +206,14 @@ begin
           loc_DATR <= (others => '0');
         end if;
 
+        -- write
         if ( (xuser_TMEM_IF_ENA = '1') ) then
           if    ( addr = 2 ) then
             if ( xuser_TMEM_IF_WE(0) = '1' ) then
-              freeze      <= xuser_TMEM_IF_DATW(0);
-              rstCounters <= xuser_TMEM_IF_DATW(1);
+              freeze      <= freeze - unsigned(xuser_TMEM_IF_DATW(freeze'range));
+            end if;
+            if ( xuser_TMEM_IF_WE(4) = '1' ) then
+              rstCounters <= xuser_TMEM_IF_DATW(32);
             end if;
           end if;
         end if;

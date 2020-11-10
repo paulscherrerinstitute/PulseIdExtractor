@@ -37,7 +37,9 @@ architecture rtl of PulseidExtractor is
   type RegClkType is record
     demux        : DemuxType;
     updated      : std_logic;
+    checkSeq     : std_logic;
     pulseidReg   : std_logic_vector(8*PULSEID_LENGTH_G     - 1 downto 0);
+    pulseidNext  : unsigned        (8*PULSEID_LENGTH_G     - 1 downto 0);
     pulseid      : std_logic_vector(8*PULSEID_LENGTH_G     - 1 downto 0);
     strobe       : std_logic;
     got          : std_logic_vector(PULSEID_LENGTH_G - 1 downto 0);
@@ -51,7 +53,9 @@ architecture rtl of PulseidExtractor is
   constant REG_CLK_INIT_C : RegClkType := (
     demux        => (others => (others => '0')),
     updated      => '0',
+    checkSeq     => '0',
     pulseidReg   => (others => '0'),
+    pulseidNext  => (others => '0'),
     pulseid      => (others => '0'),
     strobe       => '0',
     synErr       => '0',
@@ -166,6 +170,8 @@ begin
 
     v := rClk;
 
+    v.checkSeq := '0';
+
 	if ( evrStream.valid = '1' ) then
       v.lastAddr := evrStream.addr;
       if ( evrStream.addr /= rClk.lastAddr ) then
@@ -200,13 +206,8 @@ begin
                 v.pulseidReg := evrStream.data & demuxVec;
               end if;
 
-              v.havePid := true; -- avoid seq error during the first iteration after reset
-
-              if ( rClk.havePid and ( unsigned(v.pulseidReg) /= unsigned(rClk.pulseidReg) + 1 ) ) then
-                v.seqErr  := not rClk.seqErr;
-              end if;
-
               v.updated   := '1';
+              v.checkSeq  := '1';
               -- strobe the watchdog; a new pulse-ID was recorded
               v.wdgStrobe := not rClk.wdgStrobe;
             end if;
@@ -215,6 +216,15 @@ begin
         end if; -- offset >= 0
       end if; -- evrStream.addr /= rClk.lastAddr
     end if; -- evrStream.valid = '1'
+
+    if ( rClk.checkSeq = '1' ) then
+      v.pulseidNext := unsigned(rClk.pulseidReg) + 1;
+      v.havePid     := true; -- avoid seq error during the first iteration after reset
+
+      if ( rClk.havePid and ( unsigned(rClk.pulseidReg) /= rClk.pulseidNext ) ) then
+        v.seqErr  := not rClk.seqErr;
+      end if;
+    end if;
 
     if ( (trg and rClk.updated) = '1' ) then
       v.updated  := '0';

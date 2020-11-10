@@ -59,6 +59,9 @@ entity PulseidAtomicTmem is
     -- period then the respective error counter is
     -- incremented. A period of zero disables the watchdog.
     PULSEID_WDOG_P_G : natural := 0;
+    -- check whether pulse-ids are sequential; maintain
+    -- a respective statistics counter
+    PULSEID_SEQERR_G : boolean := true;
     -- offset of 1st byte of time-stamp seconds in stream
     TSUPPER_OFFSET_G : natural := 40;
     -- offset of 1st byte of time-stamp nano-seconds in
@@ -133,6 +136,7 @@ begin
       PULSEID_BIGEND_G => PULSEID_BIGEND_G,
       PULSEID_LENGTH_G => PULSEID_LENGTH_G,
       PULSEID_WDOG_P_G => PULSEID_WDOG_P_G,
+      PULSEID_SEQERR_G => PULSEID_SEQERR_G,
       TSUPPER_OFFSET_G => TSUPPER_OFFSET_G,
       TSLOWER_OFFSET_G => TSLOWER_OFFSET_G,
       USE_ASYNC_OUTP_G => USE_ASYNC_OUTP_G

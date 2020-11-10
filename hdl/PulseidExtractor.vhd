@@ -11,8 +11,9 @@ entity PulseidExtractor is
     PULSEID_OFFSET_G  : natural := 0;    -- byte-offset in data memory
     PULSEID_BIGEND_G  : boolean := true; -- endian-ness
     PULSEID_LENGTH_G  : natural := 8;    -- in bytes
-    USE_ASYNC_OUTP_G  : boolean := true;
-    PULSEID_WDOG_P_G  : natural := 0     -- watchdog for missing pulse IDs; cycle count in 'oclk' cycles (disabled when 0).
+    USE_ASYNC_OUTP_G  : boolean := true; -- clk and oclk are asynchronous; use synchronizer stages
+    PULSEID_WDOG_P_G  : natural := 0;    -- watchdog for missing pulse IDs; cycle count in 'oclk' cycles (disabled when 0).
+    PULSEID_SEQERR_G  : boolean := true  -- check that pulse-ids are sequential
   );
   port (
     clk               : in  std_logic;
@@ -149,14 +150,24 @@ begin
 
   G_Async : if ( USE_ASYNC_OUTP_G ) generate
     synErr <= (syncSynErr(syncSynErr'left) xor syncSynErr(syncSynErr'left - 1));
-    seqErr <= (syncSeqErr(syncSeqErr'left) xor syncSeqErr(syncSeqErr'left - 1));
+    G_Seq   : if ( PULSEID_SEQERR_G ) generate
+      seqErr <= (syncSeqErr(syncSeqErr'left) xor syncSeqErr(syncSeqErr'left - 1));
+    end generate G_Seq;
+    G_NoSeq : if ( not PULSEID_SEQERR_G ) generate
+      seqErr <= '0';
+    end generate G_NoSeq;
     wdgStb <= (syncWdgStb(syncWdgStb'left) xor syncWdgStb(syncWdgStb'left - 1));
     strobe <= (syncStrobe(syncStrobe'left) xor syncStrobe(syncStrobe'left - 1));
   end generate G_Async;
 
   G_Sync : if ( not USE_ASYNC_OUTP_G ) generate
     synErr <= (syncSynErr(syncSynErr'left) xor rClk.synErr   );
-    seqErr <= (syncSeqErr(syncSeqErr'left) xor rClk.seqErr   );
+    G_Seq   : if ( PULSEID_SEQERR_G ) generate
+      seqErr <= (syncSeqErr(syncSeqErr'left) xor rClk.seqErr   );
+    end generate G_Seq;
+    G_NoSeq : if ( not PULSEID_SEQERR_G ) generate
+      seqErr <= '0';
+    end generate G_NoSeq;
     wdgStb <= (syncWdgStb(syncWdgStb'left) xor rClk.wdgStrobe);
     strobe <= (syncStrobe(syncStrobe'left) xor rClk.strobe   );
   end generate G_Sync;
@@ -217,12 +228,14 @@ begin
       end if; -- evrStream.addr /= rClk.lastAddr
     end if; -- evrStream.valid = '1'
 
-    if ( rClk.checkSeq = '1' ) then
-      v.pulseidNext := unsigned(rClk.pulseidReg) + 1;
-      v.havePid     := true; -- avoid seq error during the first iteration after reset
-
-      if ( rClk.havePid and ( unsigned(rClk.pulseidReg) /= rClk.pulseidNext ) ) then
-        v.seqErr  := not rClk.seqErr;
+    if ( PULSEID_SEQERR_G ) then
+      if ( rClk.checkSeq = '1' ) then
+        v.pulseidNext := unsigned(rClk.pulseidReg) + 1;
+        v.havePid     := true; -- avoid seq error during the first iteration after reset
+  
+        if ( rClk.havePid and ( unsigned(rClk.pulseidReg) /= rClk.pulseidNext ) ) then
+          v.seqErr  := not rClk.seqErr;
+        end if;
       end if;
     end if;
 

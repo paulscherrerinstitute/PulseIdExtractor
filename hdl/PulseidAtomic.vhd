@@ -11,6 +11,7 @@ entity PulseidAtomic is
     PULSEID_BIGEND_G : boolean := false;
     PULSEID_LENGTH_G : natural := 8;
     PULSEID_WDOG_P_G : natural := 0;
+    PULSEID_SEQERR_G : boolean := true;
     TSUPPER_OFFSET_G : natural := 40;
     TSLOWER_OFFSET_G : natural := 44;
     USE_ASYNC_OUTP_G : boolean := true
@@ -106,7 +107,8 @@ begin
       PULSEID_BIGEND_G => PULSEID_BIGEND_G,
       PULSEID_LENGTH_G => PULSEID_LENGTH_G,
       USE_ASYNC_OUTP_G => USE_ASYNC_OUTP_G,
-      PULSEID_WDOG_P_G => PULSEID_WDOG_P_G
+      PULSEID_WDOG_P_G => PULSEID_WDOG_P_G,
+      PULSEID_SEQERR_G => PULSEID_SEQERR_G
     )
     port map (
       clk              => evrClk,
@@ -131,7 +133,8 @@ begin
       PULSEID_BIGEND_G => PULSEID_BIGEND_G,
       PULSEID_LENGTH_G => TS_LENGTH_C,
       USE_ASYNC_OUTP_G => USE_ASYNC_OUTP_G,
-      PULSEID_WDOG_P_G => 0
+      PULSEID_WDOG_P_G => 0,
+      PULSEID_SEQERR_G => false
     )
     port map (
       clk              => evrClk,
@@ -156,7 +159,8 @@ begin
       PULSEID_BIGEND_G => PULSEID_BIGEND_G,
       PULSEID_LENGTH_G => TS_LENGTH_C,
       USE_ASYNC_OUTP_G => USE_ASYNC_OUTP_G,
-      PULSEID_WDOG_P_G => 0
+      PULSEID_WDOG_P_G => 0,
+      PULSEID_SEQERR_G => false
     )
     port map (
       clk              => evrClk,

@@ -3,7 +3,7 @@ library ieee;
 use ieee.std_logic_1164.all;
 use ieee.numeric_std.all;
 
-use work.LedStripTcsrWrapperPkg.all;
+use work.Evr320StreamPkg.all;
 
 -- Read the streamed data output of an EVR320 module and
 -- make (integer) Pulse-ID and TimeStamp available to

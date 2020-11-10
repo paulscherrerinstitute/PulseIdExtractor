@@ -28,7 +28,7 @@ use work.Evr320StreamPkg.all;
 --                     [31:00]: nano-seconds
 --        0x10       control-register       
 --                     [0]: freeze readout
---                     [1]: reset (while asserted)
+--                     [1]: reset counters (while asserted)
 --        0x18       counter-register 0
 --                     [63:32]: sequence Errors
 --                     [31:00]: pulse-id Counter
@@ -100,7 +100,9 @@ end entity PulseidAtomicTmem;
 architecture rtl of PulseidAtomicTmem is
 
   -- pulseid, timeSecs, timeNsecs update synchronously while freeze is '0'
-  signal freeze        : std_logic;
+  signal freeze        : std_logic := '0';
+  signal rstCounters   : std_logic := '0';
+  signal loc_xuser_RST : std_logic;
 
   signal pulseid       : std_logic_vector(8*PULSEID_LENGTH_G - 1 downto 0);
   signal timeSecs      : std_logic_vector(31 downto 0);
@@ -122,7 +124,8 @@ architecture rtl of PulseidAtomicTmem is
 
 begin
 
-  addr <= unsigned( xuser_TMEM_IF_ADD(addr'range) );
+  addr          <= unsigned( xuser_TMEM_IF_ADD(addr'range) );
+  loc_xuser_RST <= (xuser_RST or rstCounters);
 
   U_X_PulseId : entity work.PulseIdAtomic
     generic map (
@@ -141,7 +144,7 @@ begin
       trg              => trg,
 
       oclk             => xuser_CLK,
-      orst             => xuser_RST,
+      orst             => loc_xuser_RST,
 
       freeze           => freeze,
       pulseid          => pulseid,
@@ -160,8 +163,9 @@ begin
   begin
     if ( rising_edge( xuser_CLK ) ) then
       if ( xuser_RST = '1' ) then
-        freeze   <= '0';
-        loc_DATR <= (others => '0');
+        freeze      <= '0';
+        rstCounters <= '0';
+        loc_DATR    <= (others => '0');
       else
         -- readout
         if    ( addr = 0 ) then
@@ -169,7 +173,7 @@ begin
         elsif ( addr = 1 ) then
           loc_DATR <= timeSecs & timeNSecs;
         elsif ( addr = 2 ) then
-          loc_DATR <= x"0000_0000_0000_000" & "000" & freeze;
+          loc_DATR <= x"0000_0000_0000_000" & "00" & rstCounters & freeze;
         elsif ( addr = 3 ) then
           loc_DATR <= seqErrors & pulseidCnt;
         elsif ( addr = 4 ) then
@@ -181,7 +185,8 @@ begin
         if ( (xuser_TMEM_IF_ENA = '1') ) then
           if    ( addr = 2 ) then
             if ( xuser_TMEM_IF_WE(0) = '1' ) then
-              freeze <= xuser_TMEM_IF_DATW(0);
+              freeze      <= xuser_TMEM_IF_DATW(0);
+              rstCounters <= xuser_TMEM_IF_DATW(1);
             end if;
           end if;
         end if;

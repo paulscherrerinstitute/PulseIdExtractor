@@ -32,9 +32,14 @@ architecture rtl of SyncCmpSlow is
   attribute ASYNC_REG : string;
   attribute KEEP      : string;
 
-  constant STAGES_C   : positive := STAGES_G + 1;
+  function EDGE_STAGES_F return natural is
+  begin
+    if ( EDGE_G = 0 ) then return 0; else return 1; end if;
+  end function EDGE_STAGES_F;
 
-  signal    syncCmp   : std_logic_vector(STAGES_G - 1 downto 0) := (others => INITVAL_G);
+  constant STAGES_C   : positive := STAGES_G + EDGE_STAGES_F;
+
+  signal    syncCmp   : std_logic_vector(STAGES_C - 1 downto 0) := (others => INITVAL_G);
   signal    capture   : std_logic                               := INITVAL_G;
 
   attribute ASYNC_REG of syncCmp : signal is "TRUE";

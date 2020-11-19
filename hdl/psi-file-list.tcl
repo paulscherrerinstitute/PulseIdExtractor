@@ -1,8 +1,9 @@
 set pulseid_extractor_fw_files { \
-  "Evr320StreamPkg.vhd" \
-  "PulseidExtractor.vhd" \
-  "PulseidAtomic.vhd" \
+  "Evr320StreamPkg.vhd"   \
+  "PulseidExtractor.vhd"  \
+  "PulseidAtomic.vhd"     \
   "PulseidAtomicTmem.vhd" \
+  "SyncCmpSlow.vhd"       \
 }
 
 set pulseid_extractor_location "[file dirname [info script]]"

@@ -42,6 +42,7 @@ use work.Evr320StreamPkg.all;
 --        0x10       control-register       
 --                     [7:0]: freeze count
 --                     [32] : reset counters (while asserted)
+--                     [34] : override 'trg' (permanently assert)
 --                   The readout is frozen while
 --                   bit 7 is asserted. The value
 --                   written to this field is *subtracted*
@@ -119,6 +120,8 @@ end entity PulseidAtomicTmem;
 
 architecture rtl of PulseidAtomicTmem is
 
+  constant TRIG_FORCE_DEFAULT_C : std_logic := '0';
+
   -- pulseid, timeSecs, timeNsecs update synchronously while freeze is '0'
   signal freeze        : unsigned(7 downto 0) := (others => '0');
   signal rstCounters   : std_logic := '0';
@@ -143,10 +146,47 @@ architecture rtl of PulseidAtomicTmem is
 
   signal addr          : unsigned(3 + LD_NUM_R64 - 1 downto 3);
 
+  signal trgForceXuser : std_logic := TRIG_FORCE_DEFAULT_C;
+  signal trgForceEvr   : std_logic;
+
+  signal trgForced     : std_logic;
+
 begin
 
   addr          <= unsigned( xuser_TMEM_IF_ADD(addr'range) );
   loc_xuser_RST <= (xuser_RST or rstCounters);
+
+  G_AsyncTrigForce : if ( USE_ASYNC_OUTP_G ) generate
+    attribute ASYNC_REG     : string;
+    attribute KEEP          : string;
+    constant  SYNC_STAGES_C : positive := 2;
+
+    signal syncTrgForce : std_logic_vector(SYNC_STAGES_C - 1 downto 0) := (others => TRIG_FORCE_DEFAULT_C);
+
+    attribute ASYNC_REG of syncTrgForce : signal is "TRUE";
+    attribute KEEP      of syncTrgForce : signal is "TRUE";
+  begin
+
+    P_SyncTrigForce : process ( evrClk ) is
+    begin
+      if ( rising_edge( evrClk ) ) then
+        if ( evrRst = '1' ) then
+          syncTrgForce <= (others => TRIG_FORCE_DEFAULT_C);
+        else
+          syncTrgForce <= (syncTrgForce(syncTrgForce'left - 1 downto 0) & trgForceXuser);
+        end if;
+      end if;
+    end process P_SyncTrigForce;
+
+    trgForceEvr <= syncTrgForce(syncTrgForce'left);
+
+  end generate G_AsyncTrigForce;
+
+  G_SyncTrigForce : if ( not USE_ASYNC_OUTP_G ) generate
+    trgForceEvr <= trgForceXuser;
+  end generate G_SyncTrigForce;
+
+  trgForced <= (trg or trgForceEvr);
 
   U_X_PulseId : entity work.PulseIdAtomic
     generic map (
@@ -163,7 +203,7 @@ begin
       evrClk           => evrClk,
       evrRst           => evrRst,
       evrStream        => evrStream,
-      trg              => trg,
+      trg              => trgForced,
 
       oclk             => xuser_CLK,
       orst             => loc_xuser_RST,
@@ -186,9 +226,10 @@ begin
   begin
     if ( rising_edge( xuser_CLK ) ) then
       if ( xuser_RST = '1' ) then
-        freeze      <= (others => '0');
-        rstCounters <= '0';
-        loc_DATR    <= (others => '0');
+        freeze        <= (others => '0');
+        rstCounters   <= '0';
+        loc_DATR      <= (others => '0');
+        trgForceXuser <= TRIG_FORCE_DEFAULT_C;
       else
         -- readout
         if    ( addr = 0 ) then
@@ -196,7 +237,7 @@ begin
         elsif ( addr = 1 ) then
           loc_DATR <= timeSecs & timeNSecs;
         elsif ( addr = 2 ) then
-          loc_DATR <=    x"0000_000" & "00" & status & rstCounters
+          loc_DATR <=    x"0000_000" & "0" & trgForceXuser & status & rstCounters
                       &  x"0000_00"  & std_logic_vector(freeze);
         elsif ( addr = 3 ) then
           loc_DATR <= seqErrors & pulseidCnt;
@@ -213,7 +254,8 @@ begin
               freeze      <= freeze - unsigned(xuser_TMEM_IF_DATW(freeze'range));
             end if;
             if ( xuser_TMEM_IF_WE(4) = '1' ) then
-              rstCounters <= xuser_TMEM_IF_DATW(32);
+              rstCounters   <= xuser_TMEM_IF_DATW(32);
+              trgForceXuser <= xuser_TMEM_IF_DATW(34);
             end if;
           end if;
         end if;

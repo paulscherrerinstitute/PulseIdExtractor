@@ -107,6 +107,9 @@ entity PulseidAtomicTmem is
     xuser_CLK          : in  std_logic;
     xuser_RST          : in  std_logic;
 
+    -- asserted for 1 cycle when output triple updates
+    strobe             : out std_logic;
+
     -- TMEM interface
     xuser_TMEM_IF_ENA  : in  std_logic;
     xuser_TMEM_IF_ADD  : in  std_logic_vector(ADD_LEFT_BIT_P_G downto 3);
@@ -130,9 +133,6 @@ architecture rtl of PulseidAtomicTmem is
   signal pulseid       : std_logic_vector(8*PULSEID_LENGTH_G - 1 downto 0);
   signal timeSecs      : std_logic_vector(31 downto 0);
   signal timeNSecs     : std_logic_vector(31 downto 0);
-
-  -- asserted for 1 cycle when output triple updates
-  signal strobe        : std_logic;
 
   signal wdgErrors     : std_logic_vector(31 downto 0);
   signal synErrors     : std_logic_vector(31 downto 0);

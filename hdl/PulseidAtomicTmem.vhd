@@ -109,6 +109,7 @@ entity PulseidAtomicTmem is
 
     -- asserted for 1 cycle when output triple updates
     strobe             : out std_logic;
+    pulseid            : out std_logic_vector(8*PULSEID_LENGTH_G - 1 downto 0);
 
     -- TMEM interface
     xuser_TMEM_IF_ENA  : in  std_logic;
@@ -130,7 +131,7 @@ architecture rtl of PulseidAtomicTmem is
   signal rstCounters   : std_logic := '0';
   signal loc_xuser_RST : std_logic;
 
-  signal pulseid       : std_logic_vector(8*PULSEID_LENGTH_G - 1 downto 0);
+  signal pulseidLoc    : std_logic_vector(8*PULSEID_LENGTH_G - 1 downto 0);
   signal timeSecs      : std_logic_vector(31 downto 0);
   signal timeNSecs     : std_logic_vector(31 downto 0);
 
@@ -209,7 +210,7 @@ begin
       orst             => loc_xuser_RST,
 
       freeze           => freeze(freeze'left),
-      pulseid          => pulseid,
+      pulseid          => pulseidLoc,
       timeSecs         => timeSecs,
       timeNSecs        => timeNSecs,
 
@@ -233,7 +234,7 @@ begin
       else
         -- readout
         if    ( addr = 0 ) then
-          loc_DATR <= pulseid;
+          loc_DATR <= pulseidLoc;
         elsif ( addr = 1 ) then
           loc_DATR <= timeSecs & timeNSecs;
         elsif ( addr = 2 ) then
@@ -266,5 +267,7 @@ begin
   xuser_TMEM_IF_DATR <= loc_DATR;
   xuser_TMEM_IF_BUSY <= '0';
   xuser_TMEM_IF_PIPE <= "00";
+
+  pulseid            <= pulseidLoc;
 
 end architecture rtl;

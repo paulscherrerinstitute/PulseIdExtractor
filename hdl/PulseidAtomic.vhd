@@ -71,10 +71,24 @@ architecture rtl of PulseidAtomic is
     timeOut   => TIMESTAMP_INIT_C
   );
 
-  signal r             : RegType := REG_INIT_C;
+  type ERegType is record
+    lockout   : boolean;
+    trg       : std_logic;
+  end record ERegType;
+
+  constant EREG_INIT_C : ERegType := (
+    lockout   => true,
+    trg       => '0'
+  );
+
+  signal r             : RegType  := REG_INIT_C;
   signal rin           : RegType;
 
+  signal er            : ERegType := EREG_INIT_C;
+  signal erin          : ERegType := EREG_INIT_C;
+
   signal timeLoc       : TimeStampType;
+  signal trgLoc        : std_logic;
 
   signal pulseidStrobe : std_logic;
   signal tsHiStrobe    : std_logic;
@@ -88,6 +102,14 @@ architecture rtl of PulseidAtomic is
   begin
     if ( a > b ) then return a; else return b; end if;
   end function max;
+
+  function min(a,b:natural) return natural is
+  begin
+    if ( a > b ) then return b; else return a; end if;
+  end function min;
+
+  constant MIN_ADDR_C : natural := min(PULSEID_OFFSET_G, min(TSUPPER_OFFSET_G, TSLOWER_OFFSET_G));
+  constant MAX_ADDR_C : natural := max(PULSEID_OFFSET_G + PULSEID_LENGTH_G, max(TSUPPER_OFFSET_G, TSLOWER_OFFSET_G) + TS_LENGTH_C) - 1;
 
 begin
 
@@ -118,7 +140,7 @@ begin
       clk              => evrClk,
       rst              => evrRst,
       evrStream        => evrStream,
-      trg              => trg,
+      trg              => trgLoc,
 
       oclk             => oclk,
       orst             => orst,
@@ -145,7 +167,7 @@ begin
       clk              => evrClk,
       rst              => evrRst,
       evrStream        => evrStream,
-      trg              => trg,
+      trg              => trgLoc,
 
       oclk             => oclk,
       orst             => orst,
@@ -172,7 +194,7 @@ begin
       clk              => evrClk,
       rst              => evrRst,
       evrStream        => evrStream,
-      trg              => trg,
+      trg              => trgLoc,
 
       oclk             => oclk,
       orst             => orst,
@@ -213,6 +235,30 @@ begin
     rin <= v;
   end process P_COMB;
 
+  P_ECOMB : process ( er, evrStream, trg ) is
+    variable v : ERegType;
+  begin
+    v := er;
+
+    if ( evrStream.valid = '1' ) then
+      -- not locked out during the first address OK
+      --  => trigger during first address cycle is acceptable
+      v.lockout := (unsigned(evrStream.addr) >= MIN_ADDR_C) and (unsigned(evrStream.addr) < MAX_ADDR_C);
+    end if;
+
+    if ( er.lockout ) then
+      if ( trg = '1' ) then
+        v.trg := '1';
+      end if;
+    else
+      v.trg := trg;
+    end if;
+
+    erin <= v;
+  end process P_ECOMB;
+
+  trgLoc <= '0' when er.lockout else er.trg;
+
   P_SEQ : process ( oclk ) is
   begin
     if ( rising_edge( oclk ) ) then
@@ -223,6 +269,18 @@ begin
       end if;
     end if;
   end process P_SEQ;
+
+  P_ESEQ : process ( evrClk ) is
+  begin
+    if ( rising_edge( evrClk ) ) then
+      if ( evrRst = '1' ) then
+        er <= EREG_INIT_C;
+      else
+        er <= erin;
+      end if;
+    end if;
+  end process P_ESEQ;
+
 
   pulseid   <= r.timeOut.pulseid;
   timeSecs  <= r.timeOut.timeSecs;
